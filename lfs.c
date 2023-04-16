@@ -1515,8 +1515,18 @@ nextname:
 
         // grab the entry data
         if (lfs_tag_id(tag) != 0x3ff) {
+#if LFS_TI_C2000
+            uint8_t tailBuf[8];
+            c2000_uint32_to_buffer(dir->tail[0], &tailBuf[0]);
+            c2000_uint32_to_buffer(dir->tail[1], &tailBuf[4]);
+            lfs_stag_t res = lfs_dir_get(lfs, dir, LFS_MKTAG(0x700, 0x3ff, 0),
+                    LFS_MKTAG(LFS_TYPE_STRUCT, lfs_tag_id(tag), 8), &tailBuf[0]);
+            dir->tail[0] = c2000_buffer_to_uint32(&tailBuf[0]);
+            dir->tail[1] = c2000_buffer_to_uint32(&tailBuf[4]);
+#else
             lfs_stag_t res = lfs_dir_get(lfs, dir, LFS_MKTAG(0x700, 0x3ff, 0),
                     LFS_MKTAG(LFS_TYPE_STRUCT, lfs_tag_id(tag), 8), dir->tail);
+#endif
             if (res < 0) {
                 return res;
             }
@@ -2508,10 +2518,22 @@ static int lfs_dir_orphaningcommit(lfs_t *lfs, lfs_mdir_t *dir,
         lpair[0] = pdir.pair[0];
         lpair[1] = pdir.pair[1];
         lfs_pair_tole32(dir->tail);
+#if LFS_TI_C2000
+        uint8_t tailBuf[8];
+        c2000_uint32_to_buffer(dir->tail[0], &tailBuf[0]);
+        c2000_uint32_to_buffer(dir->tail[1], &tailBuf[4]);
+        state = lfs_dir_relocatingcommit(lfs, &pdir, lpair, LFS_MKATTRS(
+                    {LFS_MKTAG(LFS_TYPE_TAIL + dir->split, 0x3ff, 8),
+                        &tailBuf[0]}),
+                NULL);
+        dir->tail[0] = c2000_buffer_to_uint32(&tailBuf[0]);
+        dir->tail[1] = c2000_buffer_to_uint32(&tailBuf[4]);
+#else
         state = lfs_dir_relocatingcommit(lfs, &pdir, lpair, LFS_MKATTRS(
                     {LFS_MKTAG(LFS_TYPE_TAIL + dir->split, 0x3ff, 8),
                         dir->tail}),
                 NULL);
+#endif
         lfs_pair_fromle32(dir->tail);
         if (state < 0) {
             return state;
@@ -2630,12 +2652,26 @@ static int lfs_dir_orphaningcommit(lfs_t *lfs, lfs_mdir_t *dir,
             lpair[0] = pdir.pair[0];
             lpair[1] = pdir.pair[1];
             lfs_pair_tole32(ldir.pair);
+#if LFS_TI_C2000
+            uint8_t ldirBuf[8];
+            c2000_uint32_to_buffer(ldir.pair[0], &ldirBuf[0]);
+            c2000_uint32_to_buffer(ldir.pair[1], &ldirBuf[4]);
+            state = lfs_dir_relocatingcommit(lfs, &pdir, lpair, LFS_MKATTRS(
+                        {LFS_MKTAG_IF(moveid != 0x3ff,
+                            LFS_TYPE_DELETE, moveid, 0), NULL},
+                        {LFS_MKTAG(LFS_TYPE_TAIL + pdir.split, 0x3ff, 8),
+                            &ldirBuf[0]}),
+                    NULL);
+            ldir.pair[0] = c2000_buffer_to_uint32(&ldirBuf[0]);
+            ldir.pair[1] = c2000_buffer_to_uint32(&ldirBuf[4]);
+#else
             state = lfs_dir_relocatingcommit(lfs, &pdir, lpair, LFS_MKATTRS(
                         {LFS_MKTAG_IF(moveid != 0x3ff,
                             LFS_TYPE_DELETE, moveid, 0), NULL},
                         {LFS_MKTAG(LFS_TYPE_TAIL + pdir.split, 0x3ff, 8),
                             ldir.pair}),
                     NULL);
+#endif
             lfs_pair_fromle32(ldir.pair);
             if (state < 0) {
                 return state;
@@ -2823,8 +2859,18 @@ static int lfs_dir_rawopen(lfs_t *lfs, lfs_dir_t *dir, const char *path) {
         pair[1] = lfs->root[1];
     } else {
         // get dir pair from parent
+#if LFS_TI_C2000
+        uint8_t pairBuf[8];
+        c2000_uint32_to_buffer(pair[0], &pairBuf[0]);
+        c2000_uint32_to_buffer(pair[1], &pairBuf[4]);
+        lfs_stag_t res = lfs_dir_get(lfs, &dir->m, LFS_MKTAG(0x700, 0x3ff, 0),
+                LFS_MKTAG(LFS_TYPE_STRUCT, lfs_tag_id(tag), 8), &pairBuf[0]);
+        pair[0] = c2000_buffer_to_uint32(&pairBuf[0]);
+        pair[1] = c2000_buffer_to_uint32(&pairBuf[4]);
+#else
         lfs_stag_t res = lfs_dir_get(lfs, &dir->m, LFS_MKTAG(0x700, 0x3ff, 0),
                 LFS_MKTAG(LFS_TYPE_STRUCT, lfs_tag_id(tag), 8), pair);
+#endif
         if (res < 0) {
             return res;
         }
@@ -4004,8 +4050,16 @@ static int lfs_rawremove(lfs_t *lfs, const char *path) {
     if (lfs_tag_type3(tag) == LFS_TYPE_DIR) {
         // must be empty before removal
         lfs_block_t pair[2];
+#if LFS_TI_C2000
+        uint8_t pairBuf[8] = {0};
+        lfs_stag_t res = lfs_dir_get(lfs, &cwd, LFS_MKTAG(0x700, 0x3ff, 0),
+                LFS_MKTAG(LFS_TYPE_STRUCT, lfs_tag_id(tag), 8), &pairBuf[0]);
+        pair[0] = c2000_buffer_to_uint32(&pairBuf[0]);
+        pair[1] = c2000_buffer_to_uint32(&pairBuf[4]);
+#else
         lfs_stag_t res = lfs_dir_get(lfs, &cwd, LFS_MKTAG(0x700, 0x3ff, 0),
                 LFS_MKTAG(LFS_TYPE_STRUCT, lfs_tag_id(tag), 8), pair);
+#endif
         if (res < 0) {
             return (int)res;
         }
@@ -4115,8 +4169,16 @@ static int lfs_rawrename(lfs_t *lfs, const char *oldpath, const char *newpath) {
     } else if (lfs_tag_type3(prevtag) == LFS_TYPE_DIR) {
         // must be empty before removal
         lfs_block_t prevpair[2];
+#if LFS_TI_C2000
+        uint8_t prevpairBuf[8] = {0};
+        lfs_stag_t res = lfs_dir_get(lfs, &newcwd, LFS_MKTAG(0x700, 0x3ff, 0),
+                LFS_MKTAG(LFS_TYPE_STRUCT, newid, 8), &prevpairBuf[0]);
+        prevpair[0] = c2000_buffer_to_uint32(&prevpairBuf[0]);
+        prevpair[1] = c2000_buffer_to_uint32(&prevpairBuf[4]);
+#else
         lfs_stag_t res = lfs_dir_get(lfs, &newcwd, LFS_MKTAG(0x700, 0x3ff, 0),
                 LFS_MKTAG(LFS_TYPE_STRUCT, newid, 8), prevpair);
+#endif
         if (res < 0) {
             return (int)res;
         }
@@ -4156,7 +4218,7 @@ static int lfs_rawrename(lfs_t *lfs, const char *oldpath, const char *newpath) {
             {LFS_MKTAG_IF(prevtag != LFS_ERR_NOENT, LFS_TYPE_DELETE, newid, 0), NULL},
             {LFS_MKTAG(LFS_TYPE_CREATE, newid, 0), NULL},
             {LFS_MKTAG(lfs_tag_type3(oldtag), newid, strlen(newpath)), newpath},
-            {LFS_MKTAG(LFS_FROM_MOVE, newid, lfs_tag_id(oldtag)), &oldcwd},
+            {LFS_MKTAG(LFS_FROM_MOVE, newid, lfs_tag_id(oldtag)), &oldcwd},  /// <-- TODO: Figure out how to pass oldcwd
             {LFS_MKTAG_IF(samepair,
                 LFS_TYPE_DELETE, newoldid, 0), NULL}));
 #else
@@ -4693,7 +4755,7 @@ int lfs_fs_rawtraverse(lfs_t *lfs,
         for (uint16_t id = 0; id < dir.count; id++) {
             struct lfs_ctz ctz;
 #if LFS_TI_C2000
-            uint8_t ctzBuf[8];
+            uint8_t ctzBuf[8] = {0};
             lfs_stag_t tag = lfs_dir_get(lfs, &dir, LFS_MKTAG(0x700, 0x3ff, 0),
                     LFS_MKTAG(LFS_TYPE_STRUCT, id, 8), ctzBuf);
             ctz.head = c2000_buffer_to_uint32(&ctzBuf[0]);
@@ -4948,9 +5010,20 @@ restart:
 
                     // steal tail
                     lfs_pair_tole32(dir.tail);
+#if LFS_TI_C2000
+                    uint8_t tailBuf[8];
+                    c2000_uint32_to_buffer(dir.tail[0], &tailBuf[0]);
+                    c2000_uint32_to_buffer(dir.tail[1], &tailBuf[4]);
+                    int state = lfs_dir_orphaningcommit(lfs, &pdir, LFS_MKATTRS(
+                            {LFS_MKTAG(LFS_TYPE_TAIL + dir.split, 0x3ff, 8),
+                                &tailBuf[0]}));
+                    dir.tail[0] = c2000_buffer_to_uint32(&tailBuf[0]);
+                    dir.tail[1] = c2000_buffer_to_uint32(&tailBuf[4]);
+#else
                     int state = lfs_dir_orphaningcommit(lfs, &pdir, LFS_MKATTRS(
                             {LFS_MKTAG(LFS_TYPE_TAIL + dir.split, 0x3ff, 8),
                                 dir.tail}));
+#endif
                     lfs_pair_fromle32(dir.tail);
                     if (state < 0) {
                         return state;
@@ -4996,11 +5069,24 @@ restart:
                         }
 
                         lfs_pair_tole32(pair);
+#if LFS_TI_C2000
+                        uint8_t pairBuf[8];
+                        c2000_uint32_to_buffer(pair[0], &pairBuf[0]);
+                        c2000_uint32_to_buffer(pair[1], &pairBuf[4]);
+                        state = lfs_dir_orphaningcommit(lfs, &pdir, LFS_MKATTRS(
+                                {LFS_MKTAG_IF(moveid != 0x3ff,
+                                    LFS_TYPE_DELETE, moveid, 0), NULL},
+                                {LFS_MKTAG(LFS_TYPE_SOFTTAIL, 0x3ff, 8),
+                                    &pairBuf[0]}));
+                        pair[0] = c2000_buffer_to_uint32(&pairBuf[0]);
+                        pair[1] = c2000_buffer_to_uint32(&pairBuf[4]);
+#else
                         state = lfs_dir_orphaningcommit(lfs, &pdir, LFS_MKATTRS(
                                 {LFS_MKTAG_IF(moveid != 0x3ff,
                                     LFS_TYPE_DELETE, moveid, 0), NULL},
                                 {LFS_MKTAG(LFS_TYPE_SOFTTAIL, 0x3ff, 8),
                                     pair}));
+#endif
                         lfs_pair_fromle32(pair);
                         if (state < 0) {
                             return state;
@@ -5682,11 +5768,7 @@ static int lfs_rawmigrate(lfs_t *lfs, const struct lfs_config *cfg) {
         err = lfs_dir_commit(lfs, &dir2, LFS_MKATTRS(
                 {LFS_MKTAG(LFS_TYPE_CREATE, 0, 0), NULL},
                 {LFS_MKTAG(LFS_TYPE_SUPERBLOCK, 0, 8), "littlefs"},
-#if LFS_TI_C2000
-                {LFS_MKTAG(LFS_TYPE_INLINESTRUCT, 0, sizeof(superblock) * 2),
-#else
                 {LFS_MKTAG(LFS_TYPE_INLINESTRUCT, 0, sizeof(superblock)),
-#endif
                 }
                     &superblock}));
         if (err) {
