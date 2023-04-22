@@ -76,7 +76,7 @@ static int lfs_bd_read(lfs_t *lfs,
             if (off >= rcache->off) {
                 // is already in rcache?
                 diff = lfs_min(diff, rcache->size - (off-rcache->off));
-                memcpy(data, &rcache->buffer[off-rcache->off], diff); /// TODO: check this
+                memcpy(data, &rcache->buffer[off-rcache->off], diff);
 
                 data += diff;
                 off += diff;
@@ -330,11 +330,19 @@ static inline uint16_t lfs_tag_type3(lfs_tag_t tag) {
 }
 
 static inline uint8_t lfs_tag_chunk(lfs_tag_t tag) {
+#if LFS_TI_C2000
+    return (uint8_t)(((tag & 0x0ff00000) >> 20) & 0xFF);
+#else
     return (tag & 0x0ff00000) >> 20;
+#endif
 }
 
 static inline int8_t lfs_tag_splice(lfs_tag_t tag) {
+#if LFS_TI_C2000
+    return (int8_t)(((int16_t)lfs_tag_chunk(tag)) << 8) >> 8;
+#else
     return (int8_t)lfs_tag_chunk(tag);
+#endif
 }
 
 static inline uint16_t lfs_tag_id(lfs_tag_t tag) {
@@ -390,7 +398,7 @@ static inline bool lfs_gstate_hasorphans(const lfs_gstate_t *a) {
 }
 
 static inline uint8_t lfs_gstate_getorphans(const lfs_gstate_t *a) {
-    return lfs_tag_size(a->tag);
+    return (uint8_t)(lfs_tag_size(a->tag) & 0xFF);
 }
 
 static inline bool lfs_gstate_hasmove(const lfs_gstate_t *a) {
@@ -1149,11 +1157,11 @@ static lfs_stag_t lfs_dir_fetchmatch(lfs_t *lfs,
                 // check the crc attr
                 uint32_t dcrc;
 #if LFS_TI_C2000
-                uint8_t crcTmpBuf[4];
+                uint8_t crcTmpBuffer[4];
                 err = lfs_bd_read(lfs,
                         NULL, &lfs->rcache, lfs->cfg->block_size,
-                        dir->pair[0], off+4, crcTmpBuf, 4);
-                dcrc = c2000_buffer_to_uint32(crcTmpBuf);
+                        dir->pair[0], off+4, crcTmpBuffer, 4);
+                dcrc = c2000_buffer_to_uint32(crcTmpBuffer);
 #else
                 err = lfs_bd_read(lfs,
                         NULL, &lfs->rcache, lfs->cfg->block_size,
@@ -1181,8 +1189,8 @@ static lfs_stag_t lfs_dir_fetchmatch(lfs_t *lfs,
                 // as a collection function because it is sufficiently
                 // random and convenient
 #if LFS_TI_C2000
-                c2000_uint32_to_buffer(crc, crcTmpBuf);
-                lfs->seed = lfs_crc(lfs->seed, crcTmpBuf, 4);
+                c2000_uint32_to_buffer(crc, crcTmpBuffer);
+                lfs->seed = lfs_crc(lfs->seed, crcTmpBuffer, 4);
 #else
                 lfs->seed = lfs_crc(lfs->seed, &crc, sizeof(crc));
 #endif
@@ -1388,9 +1396,7 @@ static int lfs_dir_getinfo(lfs_t *lfs, lfs_mdir_t *dir,
 
     struct lfs_ctz ctz;
 #if LFS_TI_C2000
-    uint8_t ctzBuf[8];
-    c2000_uint32_to_buffer(ctz.head, &ctzBuf[0]);
-    c2000_uint32_to_buffer(ctz.size, &ctzBuf[4]);
+    uint8_t ctzBuf[8] = {0};
     tag = lfs_dir_get(lfs, dir, LFS_MKTAG(0x700, 0x3ff, 0),
             LFS_MKTAG(LFS_TYPE_STRUCT, id, 8), ctzBuf);
     ctz.head = c2000_buffer_to_uint32(&ctzBuf[0]);
@@ -2785,13 +2791,13 @@ static int lfs_rawmkdir(lfs_t *lfs, const char *path) {
 
         lfs_pair_tole32(dir.pair);
 #if LFS_TI_C2000
-        uint8_t dirPairBuf[8];
-        c2000_uint32_to_buffer(dir.pair[0], &dirPairBuf[0]);
-        c2000_uint32_to_buffer(dir.pair[1], &dirPairBuf[4]);
+        uint8_t dirPairTmpBuf[8];
+        c2000_uint32_to_buffer(dir.pair[0], &dirPairTmpBuf[0]);
+        c2000_uint32_to_buffer(dir.pair[1], &dirPairTmpBuf[4]);
         err = lfs_dir_commit(lfs, &pred, LFS_MKATTRS(
-                {LFS_MKTAG(LFS_TYPE_SOFTTAIL, 0x3ff, 8), dirPairBuf}));
-        dir.pair[0] = c2000_buffer_to_uint32(&dirPairBuf[0]);
-        dir.pair[1] = c2000_buffer_to_uint32(&dirPairBuf[4]);
+                {LFS_MKTAG(LFS_TYPE_SOFTTAIL, 0x3ff, 8), dirPairTmpBuf}));
+        dir.pair[0] = c2000_buffer_to_uint32(&dirPairTmpBuf[0]);
+        dir.pair[1] = c2000_buffer_to_uint32(&dirPairTmpBuf[4]);
 #else
         err = lfs_dir_commit(lfs, &pred, LFS_MKATTRS(
                 {LFS_MKTAG(LFS_TYPE_SOFTTAIL, 0x3ff, 8), dir.pair}));
@@ -3144,11 +3150,11 @@ static int lfs_ctz_extend(lfs_t *lfs,
 
                 if (i != skips-1) {
 #if LFS_TI_C2000
-                    uint8_t nheadBuf[4];
+                    uint8_t nheadBuffer[4];
                     err = lfs_bd_read(lfs,
                             NULL, rcache, 4,
-                            nhead, 4*i, nheadBuf, 4);
-                    nhead = c2000_buffer_to_uint32(nheadBuf);
+                            nhead, 4*i, nheadBuffer, 4);
+                    nhead = c2000_buffer_to_uint32(nheadBuffer);
 #else
                     err = lfs_bd_read(lfs,
                             NULL, rcache, sizeof(nhead),
@@ -4213,7 +4219,6 @@ static int lfs_rawrename(lfs_t *lfs, const char *oldpath, const char *newpath) {
 
     // move over all attributes
 #if LFS_TI_C2000
-    /// TODO: Figure this out
     err = lfs_dir_commit(lfs, &newcwd, LFS_MKATTRS(
             {LFS_MKTAG_IF(prevtag != LFS_ERR_NOENT, LFS_TYPE_DELETE, newid, 0), NULL},
             {LFS_MKTAG(LFS_TYPE_CREATE, newid, 0), NULL},
